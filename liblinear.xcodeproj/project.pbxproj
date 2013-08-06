@@ -6,26 +6,43 @@
 	objectVersion = 46;
 	objects = {
 
+/* Begin PBXFileReference section */
+		71462FFE17B1AC630072893C /* linear.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = linear.cpp; sourceTree = "<group>"; };
+		71462FFF17B1AC630072893C /* linear.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = linear.h; sourceTree = "<group>"; };
+		7146300017B1AC630072893C /* Makefile */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.make; path = Makefile; sourceTree = "<group>"; };
+		7146300117B1AC630072893C /* predict.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = predict.c; sourceTree = "<group>"; };
+		7146300217B1AC630072893C /* train.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = train.c; sourceTree = "<group>"; };
+		7146300317B1AC630072893C /* tron.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = tron.cpp; sourceTree = "<group>"; };
+		7146300417B1AC630072893C /* tron.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = tron.h; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
 /* Begin PBXGroup section */
 		71462FEB17B1ABF90072893C = {
 			isa = PBXGroup;
 			children = (
+				71462FFE17B1AC630072893C /* linear.cpp */,
+				71462FFF17B1AC630072893C /* linear.h */,
+				7146300017B1AC630072893C /* Makefile */,
+				7146300117B1AC630072893C /* predict.c */,
+				7146300217B1AC630072893C /* train.c */,
+				7146300317B1AC630072893C /* tron.cpp */,
+				7146300417B1AC630072893C /* tron.h */,
 			);
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXLegacyTarget section */
-		71462FF017B1ABF90072893C /* liblinear */ = {
+		71462FF017B1ABF90072893C /* train */ = {
 			isa = PBXLegacyTarget;
 			buildArgumentsString = "$(ACTION)";
-			buildConfigurationList = 71462FF317B1ABF90072893C /* Build configuration list for PBXLegacyTarget "liblinear" */;
+			buildConfigurationList = 71462FF317B1ABF90072893C /* Build configuration list for PBXLegacyTarget "train" */;
 			buildPhases = (
 			);
 			buildToolPath = /usr/bin/make;
 			dependencies = (
 			);
-			name = liblinear;
+			name = train;
 			passBuildSettingsInEnvironment = 1;
 			productName = liblinear;
 		};
@@ -49,7 +66,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				71462FF017B1ABF90072893C /* liblinear */,
+				71462FF017B1ABF90072893C /* train */,
 			);
 		};
 /* End PBXProject section */
@@ -145,13 +162,14 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		71462FF317B1ABF90072893C /* Build configuration list for PBXLegacyTarget "liblinear" */ = {
+		71462FF317B1ABF90072893C /* Build configuration list for PBXLegacyTarget "train" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				71462FF417B1ABF90072893C /* Debug */,
 				71462FF517B1ABF90072893C /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};
