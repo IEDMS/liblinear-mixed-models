@@ -14,15 +14,17 @@
 		7146300217B1AC630072893C /* train.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = train.c; sourceTree = "<group>"; };
 		7146300317B1AC630072893C /* tron.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = tron.cpp; sourceTree = "<group>"; };
 		7146300417B1AC630072893C /* tron.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = tron.h; sourceTree = "<group>"; };
+		71CEA50A17B270A70001F8B9 /* COPYRIGHT */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = COPYRIGHT; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
 		71462FEB17B1ABF90072893C = {
 			isa = PBXGroup;
 			children = (
+				71CEA50A17B270A70001F8B9 /* COPYRIGHT */,
+				7146300017B1AC630072893C /* Makefile */,
 				71462FFE17B1AC630072893C /* linear.cpp */,
 				71462FFF17B1AC630072893C /* linear.h */,
-				7146300017B1AC630072893C /* Makefile */,
 				7146300117B1AC630072893C /* predict.c */,
 				7146300217B1AC630072893C /* train.c */,
 				7146300317B1AC630072893C /* tron.cpp */,
