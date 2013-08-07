@@ -72,8 +72,8 @@ l2r_lr_fun::l2r_lr_fun(const problem *prob, double *C)
 
 	this->prob = prob;
 
-	z = new double[l];
-	D = new double[l];
+	z = new double[l]; // response
+	D = new double[l]; // diagonal for Hessian
 	this->C = C;
 }
 
@@ -84,7 +84,7 @@ l2r_lr_fun::~l2r_lr_fun()
 }
 
 
-double l2r_lr_fun::fun(double *w)
+double l2r_lr_fun::fun(double *w) // objective function
 {
 	int i;
 	double f=0;
@@ -92,18 +92,18 @@ double l2r_lr_fun::fun(double *w)
 	int l=prob->l;
 	int w_size=get_nr_variable();
 
-	Xv(w, z);
+	Xv(w, z);  // z = X*w 
 
-	for(i=0;i<w_size;i++)
-		f += w[i]*w[i];
-	f /= 2.0;
-	for(i=0;i<l;i++)
+	for(i=0;i<w_size;i++)   // compute L2 penalty, to be modified in mixed-effect version
+		f += w[i]*w[i];     // this is what modified in mixed-effect version
+	f /= 2.0;               // ... don't forget the 1/2 multiplier
+	for(i=0;i<l;i++)        // from wTx compute the rest of objective function
 	{
 		double yz = y[i]*z[i];
 		if (yz >= 0)
 			f += C[i]*log(1 + exp(-yz));
 		else
-			f += C[i]*(-yz+log(1 + exp(yz)));
+			f += C[i]*(-yz+log(1 + exp(yz)));  // easier to compute like this
 	}
 
 	return(f);
@@ -118,14 +118,14 @@ void l2r_lr_fun::grad(double *w, double *g)
 
 	for(i=0;i<l;i++)
 	{
-		z[i] = 1/(1 + exp(-y[i]*z[i]));
-		D[i] = z[i]*(1-z[i]);
-		z[i] = C[i]*(z[i]-1)*y[i];
+		z[i] = 1/(1 + exp(-y[i]*z[i])); // convert logit version to probabilities
+		D[i] = z[i]*(1-z[i]);           // compute diagonal for Hessian
+		z[i] = C[i]*(z[i]-1)*y[i];      // convert z: weight it by C, not(z) * y
 	}
-	XTv(z, g);
+	XTv(z, g); // z*X'
 
 	for(i=0;i<w_size;i++)
-		g[i] = w[i] + g[i];
+		g[i] = w[i] + g[i]; // w[i] is the penalty, to be modified in mixed-effect version
 }
 
 int l2r_lr_fun::get_nr_variable(void)
@@ -140,7 +140,7 @@ void l2r_lr_fun::Hv(double *s, double *Hs)
 	int w_size=get_nr_variable();
 	double *wa = new double[l];
 
-	Xv(s, wa);
+	Xv(s, wa); // logistic response in wa
 	for(i=0;i<l;i++)
 		wa[i] = C[i]*D[i]*wa[i];
 
@@ -150,7 +150,7 @@ void l2r_lr_fun::Hv(double *s, double *Hs)
 	delete[] wa;
 }
 
-void l2r_lr_fun::Xv(double *v, double *Xv)
+void l2r_lr_fun::Xv(double *v, double *Xv) // v==w, Xv==z
 {
 	int i;
 	int l=prob->l;
@@ -168,7 +168,7 @@ void l2r_lr_fun::Xv(double *v, double *Xv)
 	}
 }
 
-void l2r_lr_fun::XTv(double *v, double *XTv)
+void l2r_lr_fun::XTv(double *v, double *XTv) // gradeint helper, v--transformed z, XTv - helper grad value
 {
 	int i;
 	int l=prob->l;
@@ -187,6 +187,173 @@ void l2r_lr_fun::XTv(double *v, double *XTv)
 		}
 	}
 }
+
+// vvvvv added by MYudelson, l2-regularized logistic regression, regularization
+//  applied only to 'hierarchical' parmateres making it a mixed effect regression
+// differences with native version of l2r_lr_fun will be marked by 'MYudelson'
+class l2r_lr_me_fun: public function
+{
+public:
+	l2r_lr_me_fun(const problem *prob, double *C);
+	~l2r_lr_me_fun();
+    
+	double fun(double *w);
+	void grad(double *w, double *g);
+	void Hv(double *s, double *Hs);
+    
+	int get_nr_variable(void);
+    
+private:
+	void Xv(double *v, double *Xv);
+	void XTv(double *v, double *XTv);
+    
+	double *C;
+	double *z;
+	double *D;
+	const problem *prob;
+    
+    int n_group; // MYudelson copy from problem
+    int *group;  // MYudelson copy pointer from problem
+    double *group_pen; // MYudelson internal variable here
+};
+
+l2r_lr_me_fun::l2r_lr_me_fun(const problem *prob, double *C) {
+	int l=prob->l;
+    
+	this->prob = prob;
+    
+	z = new double[l]; // response
+	D = new double[l]; // diagonal for Hessian
+	this->C = C;
+    
+    n_group = prob->n_group; // MYudelson
+    group   = prob->group;   // MYudelson
+    group_pen = new double[n_group]; // MYudelson
+}
+
+l2r_lr_me_fun::~l2r_lr_me_fun() {
+	delete[] z;
+	delete[] D;
+    delete[] group_pen;  // MYudelson
+}
+
+double l2r_lr_me_fun::fun(double *w) { // objective function, compute mixed effect penalties here, MYudelson
+	int i;
+	double f=0;
+	double *y=prob->y;
+	int l=prob->l;
+	int w_size=get_nr_variable();
+    
+	Xv(w, z); // z = X*w
+    
+    for(i=0;i<n_group;i++)  // MYudelson 
+        group_pen[i] = 0.0; // MYudelson
+    
+	for(i=0;i<w_size;i++) { // compute L2 penalty - here's where we modify to do Grouped
+        //		f += w[i]*w[i]; // MYudelson
+        // since group penalty is equivalent to L2, we do not change here, but compute grouped penalties for gradients
+        // do not penalize non-grouped variables here
+        if(group[i]>0) { //MYudelson it's in a group
+            f += w[i]*w[i]; // penalize only grouped variables
+            group_pen[ group[i]-1 ] += w[i]*w[i]; // MYudelson '-1' for converting 1-started index to 0-started
+        }
+    } // till the end of function, as it were
+	f /= 2.0; // ... don't forget the 1/2 multiplier
+	for(i=0;i<l;i++) // from wTx compute the rest of objective function
+	{
+		double yz = y[i]*z[i];
+		if (yz >= 0)
+			f += C[i]*log(1 + exp(-yz));
+		else
+			f += C[i]*(-yz+log(1 + exp(yz))); // easier to compute
+	}
+    
+	return(f);
+}
+
+void l2r_lr_me_fun::grad(double *w, double *g) { // MYudelson
+	int i;
+	double *y=prob->y;
+	int l=prob->l;
+	int w_size=get_nr_variable();
+    
+	for(i=0;i<l;i++)
+	{
+		z[i] = 1/(1 + exp(-y[i]*z[i])); // convert logit version to probabilities
+		D[i] = z[i]*(1-z[i]); // compute diagonal for Hessian
+		z[i] = C[i]*(z[i]-1)*y[i]; // convert z: weight it by C, not(z) * y
+	}
+	XTv(z, g); // z*X'
+    
+	for(i=0;i<w_size;i++) {
+        //		g[i] = w[i] + g[i]; // MYudelson
+        if( group[i] > 0 ) { // if is in a group MYudelson
+            if( group_pen[ group[i]-1 ] > 0)
+                g[i] = g[i] + 2*w[i]; // division is for grouped lasso / group_pen[ group[i]-1 ]; // MYudelson with penalty
+            // else // MYudelson
+            //    g[i] = g[i] + w[i]; // MYudelson
+        }
+        // else // at this point do not penalize non grouped variable // MYudelson
+        //            g[i] = w[i] + g[i]; // MYudelson without penalty
+    } // MYudelson
+}
+
+int l2r_lr_me_fun::get_nr_variable(void) { // no changes
+	return prob->n;
+}
+
+void l2r_lr_me_fun::Hv(double *s, double *Hs) { // no changes
+	int i;
+	int l=prob->l;
+	int w_size=get_nr_variable();
+	double *wa = new double[l];
+    
+	Xv(s, wa); // logistic response in wa
+	for(i=0;i<l;i++)
+		wa[i] = C[i]*D[i]*wa[i];
+    
+	XTv(wa, Hs);
+	for(i=0;i<w_size;i++)
+		Hs[i] = s[i] + Hs[i];
+	delete[] wa;
+}
+
+void l2r_lr_me_fun::Xv(double *v, double *Xv) { // v==w, Xv==z // no changes
+	int i;
+	int l=prob->l;
+	feature_node **x=prob->x;
+    
+	for(i=0;i<l;i++)
+	{
+		feature_node *s=x[i];
+		Xv[i]=0;
+		while(s->index!=-1)
+		{
+			Xv[i]+=v[s->index-1]*s->value;
+			s++;
+		}
+	}
+}
+
+void l2r_lr_me_fun::XTv(double *v, double *XTv) { // gradeint helper, v--transformed z, XTv - helper grad value // no changes
+	int i;
+	int l=prob->l;
+	int w_size=get_nr_variable();
+	feature_node **x=prob->x;
+    
+	for(i=0;i<w_size;i++)
+		XTv[i]=0;
+	for(i=0;i<l;i++)
+	{
+		feature_node *s=x[i];
+		while(s->index!=-1)
+		{
+			XTv[s->index-1]+=v[i]*s->value;
+			s++;
+		}
+	}
+}
+// ^^^^^ added MYudelson
 
 class l2r_l2_svc_fun: public function
 {

@@ -28,11 +28,12 @@ void exit_with_help()
 	"  for regression\n"
 	"	11 -- L2-regularized L2-loss support vector regression (primal)\n"
 	"	12 -- L2-regularized L2-loss support vector regression (dual)\n"
-	"	13 -- L2-regularized L1-loss support vector regression (dual)\n"
+    "	13 -- L2-regularized L1-loss support vector regression (dual)\n"
+    "	14 -- L2-regularized logistic regression with grouped penalties\n" // MYudelson
 	"-c cost : set the parameter C (default 1)\n"
 	"-p epsilon : set the epsilon in loss function of SVR (default 0.1)\n"
 	"-e epsilon : set tolerance of termination criterion\n"
-	"	-s 0 and 2\n"
+	"	-s 0, 2, and 14\n" // MYudelson
 	"		|f'(w)|_2 <= eps*min(pos,neg)/l*|f'(w0)|_2,\n"
 	"		where f is the primal function and pos/neg are # of\n"
 	"		positive/negative data (default 0.01)\n"
@@ -50,6 +51,8 @@ void exit_with_help()
 	"-wi weight: weights adjust the parameter C of different classes (see README for details)\n"
 	"-v n: n-fold cross validation mode\n"
 	"-q : quiet mode (no outputs)\n"
+    "-g : group indexes for grouped lasso (-s 14) of the form '2,1-3,4-5'- 2 groups,\n"
+    "     columns 1-3 and columns 4-5\n"
 	);
 	exit(1);
 }
@@ -128,7 +131,8 @@ int main(int argc, char **argv)
 	free(prob.x);
 	free(x_space);
 	free(line);
-
+    if(prob.group!=NULL)free(prob.group); // MYudelson
+    
 	return 0;
 }
 
@@ -186,6 +190,9 @@ void parse_command_line(int argc, char **argv, char *input_file_name, char *mode
 	param.nr_weight = 0;
 	param.weight_label = NULL;
 	param.weight = NULL;
+    param.n_group = 0;      // MYudelson
+    param.group_st = NULL;  // MYudelson
+    param.group_fi = NULL;  // MYudelson
 	flag_cross_validation = 0;
 	bias = -1;
 
@@ -195,6 +202,9 @@ void parse_command_line(int argc, char **argv, char *input_file_name, char *mode
 		if(argv[i][0] != '-') break;
 		if(++i>=argc)
 			exit_with_help();
+        char *ch;           // MYudelson
+        bool start = true;  // MYudelson
+        int j;              // MYudelson
 		switch(argv[i-1][1])
 		{
 			case 's':
@@ -240,6 +250,22 @@ void parse_command_line(int argc, char **argv, char *input_file_name, char *mode
 				i--;
 				break;
 
+			case 'g':   // vvvvv MYudelson
+                ch = strtok(argv[i],",-\n\t\r");
+                param.n_group = atoi(ch);
+                param.group_st = Malloc(int, param.n_group);
+                param.group_fi = Malloc(int, param.n_group);
+                ch = strtok(NULL,",-\n\t\r");
+                j=0;
+                while( ch != NULL) {
+                    if(start) param.group_st[j] = atoi(ch);
+                    else      param.group_fi[j] = atoi(ch);
+                    ch = strtok(NULL,",-\n\t\r");
+                    if(!start) j++;
+                    start = !start;
+                }
+				break;    // ^^^^^ MYudelson
+
 			default:
 				fprintf(stderr,"unknown option: -%c\n", argv[i-1][1]);
 				exit_with_help();
@@ -272,6 +298,7 @@ void parse_command_line(int argc, char **argv, char *input_file_name, char *mode
 		switch(param.solver_type)
 		{
 			case L2R_LR:
+			case L2R_LR_ME:       // MYudelson
 			case L2R_L2LOSS_SVC:
 				param.eps = 0.01;
 				break;
@@ -396,4 +423,14 @@ void read_problem(const char *filename)
 		prob.n=max_index;
 
 	fclose(fp);
+
+    // create groups index for n columns and l rows                  // MYudelson
+    if(param.n_group>0) {                                            // MYudelson
+        prob.group = Malloc(int, prob.l);                            // MYudelson
+        prob.n_group = param.n_group;                                // MYudelson
+        for(int i=0; i<param.n_group; i++)                           // MYudelson
+            for( j=(param.group_st[i]-1); j<param.group_fi[i]; j++ ) // MYudelson
+                prob.group[j] = i+1;                                 // MYudelson
+    }                                                                // MYudelson
+    
 }

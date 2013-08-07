@@ -16,10 +16,13 @@ struct problem
 	int l, n;
 	double *y;
 	struct feature_node **x;
-	double bias;            /* < 0 if no bias term */  
+	double bias;            /* < 0 if no bias term */
+    int n_group; // MYudelson
+    int *group; // group indexes for L1R_LR_ME, 0-no group, 1-n 1-starting index (to be converted to 0-started for computations) // MYudelson
+    
 };
 
-enum { L2R_LR, L2R_L2LOSS_SVC_DUAL, L2R_L2LOSS_SVC, L2R_L1LOSS_SVC_DUAL, MCSVM_CS, L1R_L2LOSS_SVC, L1R_LR, L2R_LR_DUAL, L2R_L2LOSS_SVR = 11, L2R_L2LOSS_SVR_DUAL, L2R_L1LOSS_SVR_DUAL }; /* solver_type */
+enum { L2R_LR, L2R_L2LOSS_SVC_DUAL, L2R_L2LOSS_SVC, L2R_L1LOSS_SVC_DUAL, MCSVM_CS, L1R_L2LOSS_SVC, L1R_LR, L2R_LR_DUAL, L2R_L2LOSS_SVR = 11, L2R_L2LOSS_SVR_DUAL, L2R_L1LOSS_SVR_DUAL, L2R_LR_ME /*MYudelson*/ }; /* solver_type */
 
 struct parameter
 {
@@ -32,6 +35,9 @@ struct parameter
 	int *weight_label;
 	double* weight;
 	double p;
+    int n_group; // MYudelson
+    int *group_st; // start indexes // MYudelson
+    int *group_fi; // start indexes // MYudelson
 };
 
 struct model
