@@ -168,10 +168,18 @@ void do_cross_validation()
 	}
 	else
 	{
-		for(i=0;i<prob.l;i++)
+//        double y, v;             // M.Yudelson
+		for(i=0;i<prob.l;i++) {  // M.Yudelson
+//			y = prob.y[i];       // M.Yudelson repurpose from above
+//            v = target[i];       // M.Yudelson repurpose from above
+//            v = (v==-1)?0:v;     // just in case
+//            printf("a=%6.4f, e=%6.4f, total_error=%6.4f\n",v,y,total_error);
+//            total_error += (v-y)*(v-y); // M.Yudelson repurpose from above
 			if(target[i] == prob.y[i])
 				++total_correct;
-		printf("Cross Validation Accuracy = %g%%\n",100.0*total_correct/prob.l);
+        }
+		printf("Cross Validation Accuracy = %6.2f%%\n",100.0*total_correct/prob.l); // M.Yudelson was %g%%
+//		printf("Root Mean Squared Error = %6.4f\n",sqrt(total_error/prob.l)); // M.Yudelson add RMSE
 	}
 
 	free(target);
@@ -338,11 +346,11 @@ void read_problem(const char *filename)
 		exit(1);
 	}
 
-	prob.l = 0;
-	elements = 0;
+	prob.l = 0; // MVY: number of rows
+	elements = 0; // MVY: total number of non-zero variables in rows + .l biases
 	max_line_len = 1024;
 	line = Malloc(char,max_line_len);
-	while(readline(fp)!=NULL)
+	while(readline(fp)!=NULL) // in this loop: count number of rows and columns of large sparse matrix
 	{
 		char *p = strtok(line," \t"); // label
 
@@ -366,53 +374,53 @@ void read_problem(const char *filename)
 	x_space = Malloc(struct feature_node,elements+prob.l);
 
 	max_index = 0;
-	j=0;
-	for(i=0;i<prob.l;i++)
+	j=0; // MVY: setup, j - feature counter
+	for(i=0;i<prob.l;i++) // MVY: setup, i - line counter
 	{
 		inst_max_index = 0; // strtol gives 0 if wrong format
-		readline(fp);
-		prob.x[i] = &x_space[j];
-		label = strtok(line," \t\n");
+		readline(fp); // MVY: read new line
+		prob.x[i] = &x_space[j]; // MVY: do new label
+		label = strtok(line," \t\n"); // MVY: read new label
 		if(label == NULL) // empty line
 			exit_input_error(i+1);
 
-		prob.y[i] = strtod(label,&endptr);
+		prob.y[i] = strtod(label,&endptr); // MVY: do new label
 		if(endptr == label || *endptr != '\0')
 			exit_input_error(i+1);
 
 		while(1)
 		{
-			idx = strtok(NULL,":");
-			val = strtok(NULL," \t");
+			idx = strtok(NULL,":");  // MVY: read variable index
+			val = strtok(NULL," \t"); // MVY: read variable value
 
 			if(val == NULL)
 				break;
 
 			errno = 0;
-			x_space[j].index = (int) strtol(idx,&endptr,10);
+			x_space[j].index = (int) strtol(idx,&endptr,10); // MVY: do new variable
 			if(endptr == idx || errno != 0 || *endptr != '\0' || x_space[j].index <= inst_max_index)
 				exit_input_error(i+1);
 			else
-				inst_max_index = x_space[j].index;
+				inst_max_index = x_space[j].index; // MVY: do new variable
 
 			errno = 0;
-			x_space[j].value = strtod(val,&endptr);
+			x_space[j].value = strtod(val,&endptr); // MVY: do new variable
 			if(endptr == val || errno != 0 || (*endptr != '\0' && !isspace(*endptr)))
 				exit_input_error(i+1);
 
-			++j;
+			++j; // MVY: do new variable
 		}
 
-		if(inst_max_index > max_index)
+		if(inst_max_index > max_index) // MVY: do after new line vvvvvv
 			max_index = inst_max_index;
 
 		if(prob.bias >= 0)
 			x_space[j++].value = prob.bias;
 
-		x_space[j++].index = -1;
+		x_space[j++].index = -1; // MVY: do after new line ^^^^^^^
 	}
 
-	if(prob.bias >= 0)
+	if(prob.bias >= 0) // MVY: do after data end vvvvvv
 	{
 		prob.n=max_index+1;
 		for(i=1;i<prob.l;i++)
@@ -420,17 +428,19 @@ void read_problem(const char *filename)
 		x_space[j-2].index = prob.n;
 	}
 	else
-		prob.n=max_index;
+		prob.n=max_index; // MVY: do after data end ^^^^^^^
 
 	fclose(fp);
 
-    // create groups index for n columns and l rows                  // MYudelson
-    if(param.n_group>0) {                                            // MYudelson
-        prob.group = Malloc(int, prob.l);                            // MYudelson
+    // create groups index for n columns and l rows // MYudelson
+    if(param.n_group>0) { // MYudelson
+        prob.group = Malloc(int, prob.n); // MYudelson
         prob.n_group = param.n_group;                                // MYudelson
-        for(int i=0; i<param.n_group; i++)                           // MYudelson
-            for( j=(param.group_st[i]-1); j<param.group_fi[i]; j++ ) // MYudelson
-                prob.group[j] = i+1;                                 // MYudelson
-    }                                                                // MYudelson
+        for(int i=0; i<param.n_group; i++) { // MYudelson
+            for( j=(param.group_st[i]-1); j<param.group_fi[i]; j++ ) {// MYudelson
+                prob.group[j] = i+1; // MYudelson
+            }
+        }
+    } // MYudelson
     
 }

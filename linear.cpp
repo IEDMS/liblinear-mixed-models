@@ -246,7 +246,7 @@ double l2r_lr_me_fun::fun(double *w) { // objective function, compute mixed effe
     
 	Xv(w, z); // z = X*w
     
-    for(i=0;i<n_group;i++)  // MYudelson 
+    for(i=0;i<n_group;i++)  // MYudelson
         group_pen[i] = 0.0; // MYudelson
     
 	for(i=0;i<w_size;i++) { // compute L2 penalty - here's where we modify to do Grouped
@@ -2430,6 +2430,24 @@ static void train_one(const problem *prob, const parameter *param, double *w, do
 		case L2R_L2LOSS_SVR_DUAL:
 			solve_l2r_l1l2_svr(prob, w, param, L2R_L2LOSS_SVR_DUAL);
 			break;
+		case L2R_LR_ME:        // M.Yudelson vvvvv
+		{
+			double *C = new double[prob->l];
+			for(int i = 0; i < prob->l; i++)
+			{
+				if(prob->y[i] > 0)
+					C[i] = Cp;
+				else
+					C[i] = Cn;
+			}
+			fun_obj = new l2r_lr_me_fun(prob, C);
+			TRON tron_obj(fun_obj, primal_solver_tol);
+			tron_obj.set_print_string(liblinear_print_string);
+			tron_obj.tron(w);
+			delete fun_obj;
+			delete C;
+			break;
+		} // M.Yudelson ^^^^^
 		default:
 			fprintf(stderr, "ERROR: unknown solver_type\n");
 			break;
@@ -2505,6 +2523,12 @@ model* train(const problem *prob, const parameter *param)
 		sub_prob.n = n;
 		sub_prob.x = Malloc(feature_node *,sub_prob.l);
 		sub_prob.y = Malloc(double,sub_prob.l);
+        if(prob->n_group>0) {                      // M.Yudelson
+            sub_prob.n_group = prob->n_group;      // M.Yudelson
+            sub_prob.group = Malloc(int, prob->n); // M.Yudelson
+            for(i=0;i<n;i++)                       // M.Yudelson
+                sub_prob.group[i] = prob->group[i];      // M.Yudelson
+        }                                          // M.Yudelson
 
 		for(k=0; k<sub_prob.l; k++)
 			sub_prob.x[k] = x[k];
@@ -2531,7 +2555,6 @@ model* train(const problem *prob, const parameter *param)
 					sub_prob.y[k] = +1;
 				for(; k<sub_prob.l; k++)
 					sub_prob.y[k] = -1;
-
 				train_one(&sub_prob, param, &model_->w[0], weighted_C[0], weighted_C[1]);
 			}
 			else
@@ -2569,6 +2592,9 @@ model* train(const problem *prob, const parameter *param)
 		free(sub_prob.x);
 		free(sub_prob.y);
 		free(weighted_C);
+        if(param->solver_type == L2R_LR_ME){ // M.Yudelson
+            free(sub_prob.group);  // M.Yudelson
+        } // M.Yudelson
 	}
 	return model_;
 }
@@ -2601,6 +2627,12 @@ void cross_validation(const problem *prob, const parameter *param, int nr_fold, 
 		subprob.l = l-(end-begin);
 		subprob.x = Malloc(struct feature_node*,subprob.l);
 		subprob.y = Malloc(double,subprob.l);
+        if(prob->n_group > 0) { // M.Yudelson
+            subprob.group = Malloc(int,subprob.n); // M.Yudelson
+            for(j=0; j<subprob.n; j++) // M.Yudelson
+                subprob.group[j] = prob->group[j]; // M.Yudelson
+        }// M.Yudelson
+        
 
 		k=0;
 		for(j=0;j<begin;j++)
@@ -2621,6 +2653,7 @@ void cross_validation(const problem *prob, const parameter *param, int nr_fold, 
 		free_and_destroy_model(&submodel);
 		free(subprob.x);
 		free(subprob.y);
+        if(prob->n_group > 0) free(subprob.group); // M.Yudelson
 	}
 	free(fold_start);
 	free(perm);
@@ -2722,7 +2755,7 @@ static const char *solver_type_table[]=
 	"L2R_LR", "L2R_L2LOSS_SVC_DUAL", "L2R_L2LOSS_SVC", "L2R_L1LOSS_SVC_DUAL", "MCSVM_CS",
 	"L1R_L2LOSS_SVC", "L1R_LR", "L2R_LR_DUAL",
 	"", "", "",
-	"L2R_L2LOSS_SVR", "L2R_L2LOSS_SVR_DUAL", "L2R_L1LOSS_SVR_DUAL", NULL
+	"L2R_L2LOSS_SVR", "L2R_L2LOSS_SVR_DUAL", "L2R_L1LOSS_SVR_DUAL", "L2R_LR_ME", NULL // M.Yudelson
 };
 
 int save_model(const char *model_file_name, const struct model *model_)
@@ -2932,6 +2965,10 @@ void destroy_param(parameter* param)
 		free(param->weight_label);
 	if(param->weight != NULL)
 		free(param->weight);
+	if(param->group_st != NULL) // M.Yudelson
+		free(param->group_st);   // M.Yudelson
+	if(param->group_fi != NULL)  // M.Yudelson
+		free(param->group_fi);   // M.Yudelson
 }
 
 const char *check_parameter(const problem *prob, const parameter *param)
@@ -2945,7 +2982,7 @@ const char *check_parameter(const problem *prob, const parameter *param)
 	if(param->p < 0)
 		return "p < 0";
 
-	if(param->solver_type != L2R_LR
+	if(    param->solver_type != L2R_LR
 		&& param->solver_type != L2R_L2LOSS_SVC_DUAL
 		&& param->solver_type != L2R_L2LOSS_SVC
 		&& param->solver_type != L2R_L1LOSS_SVC_DUAL
@@ -2955,7 +2992,8 @@ const char *check_parameter(const problem *prob, const parameter *param)
 		&& param->solver_type != L2R_LR_DUAL
 		&& param->solver_type != L2R_L2LOSS_SVR
 		&& param->solver_type != L2R_L2LOSS_SVR_DUAL
-		&& param->solver_type != L2R_L1LOSS_SVR_DUAL)
+		&& param->solver_type != L2R_L1LOSS_SVR_DUAL
+        && param->solver_type != L2R_LR_ME) // M.Yudelson
 		return "unknown solver type";
 
 	return NULL;
@@ -2964,6 +3002,7 @@ const char *check_parameter(const problem *prob, const parameter *param)
 int check_probability_model(const struct model *model_)
 {
 	return (model_->param.solver_type==L2R_LR ||
+            model_->param.solver_type==L2R_LR_ME ||   // M.Yudelson
 			model_->param.solver_type==L2R_LR_DUAL ||
 			model_->param.solver_type==L1R_LR);
 }

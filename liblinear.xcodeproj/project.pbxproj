@@ -23,18 +23,32 @@
 			children = (
 				71CEA50A17B270A70001F8B9 /* COPYRIGHT */,
 				7146300017B1AC630072893C /* Makefile */,
-				71462FFE17B1AC630072893C /* linear.cpp */,
 				71462FFF17B1AC630072893C /* linear.h */,
+				71462FFE17B1AC630072893C /* linear.cpp */,
 				7146300117B1AC630072893C /* predict.c */,
 				7146300217B1AC630072893C /* train.c */,
-				7146300317B1AC630072893C /* tron.cpp */,
 				7146300417B1AC630072893C /* tron.h */,
+				7146300317B1AC630072893C /* tron.cpp */,
 			);
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXLegacyTarget section */
+		71152BC717D75A8100F072F3 /* predict */ = {
+			isa = PBXLegacyTarget;
+			buildArgumentsString = "$(ACTION)";
+			buildConfigurationList = 71152BC817D75A8100F072F3 /* Build configuration list for PBXLegacyTarget "predict" */;
+			buildPhases = (
+			);
+			buildToolPath = /usr/bin/make;
+			buildWorkingDirectory = /Users/myudelson/Documents/hcii/liblinear;
+			dependencies = (
+			);
+			name = predict;
+			passBuildSettingsInEnvironment = 1;
+			productName = predict;
+		};
 		71462FF017B1ABF90072893C /* train */ = {
 			isa = PBXLegacyTarget;
 			buildArgumentsString = "$(ACTION)";
@@ -42,6 +56,7 @@
 			buildPhases = (
 			);
 			buildToolPath = /usr/bin/make;
+			buildWorkingDirectory = /Users/myudelson/Documents/hcii/liblinear;
 			dependencies = (
 			);
 			name = train;
@@ -69,11 +84,33 @@
 			projectRoot = "";
 			targets = (
 				71462FF017B1ABF90072893C /* train */,
+				71152BC717D75A8100F072F3 /* predict */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin XCBuildConfiguration section */
+		71152BC917D75A8100F072F3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				DEBUGGING_SYMBOLS = YES;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				OTHER_CFLAGS = "";
+				OTHER_LDFLAGS = "";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Debug;
+		};
+		71152BCA17D75A8100F072F3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				OTHER_CFLAGS = "";
+				OTHER_LDFLAGS = "";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Release;
+		};
 		71462FF117B1ABF90072893C /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -134,7 +171,10 @@
 		71462FF417B1ABF90072893C /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				COPY_PHASE_STRIP = NO;
 				DEBUGGING_SYMBOLS = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				OTHER_CFLAGS = "";
@@ -146,6 +186,7 @@
 		71462FF517B1ABF90072893C /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
 				OTHER_CFLAGS = "";
 				OTHER_LDFLAGS = "";
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -155,6 +196,14 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		71152BC817D75A8100F072F3 /* Build configuration list for PBXLegacyTarget "predict" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				71152BC917D75A8100F072F3 /* Debug */,
+				71152BCA17D75A8100F072F3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+		};
 		71462FEF17B1ABF90072893C /* Build configuration list for PBXProject "liblinear" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
