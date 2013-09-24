@@ -434,7 +434,7 @@ void read_problem(const char *filename)
 
     // create groups index for n columns and l rows // MYudelson
     if(param.n_group>0) { // MYudelson
-        prob.group = Malloc(int, prob.n); // MYudelson
+        prob.group = (int *)calloc((size_t)prob.n,sizeof(int)); // Malloc(int, prob.n); // MYudelson
         prob.n_group = param.n_group;                                // MYudelson
         for(int i=0; i<param.n_group; i++) { // MYudelson
             for( j=(param.group_st[i]-1); j<param.group_fi[i]; j++ ) {// MYudelson
