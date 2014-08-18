@@ -4,6 +4,7 @@
 #include <string.h>
 #include <errno.h>
 #include "linear.h"
+#include "Math.h" //myudelson
 
 int print_null(const char *s,...) {return 0;}
 
@@ -48,6 +49,7 @@ void do_predict(FILE *input, FILE *output)
 	int total = 0;
 	double error = 0;
 	double sump = 0, sumt = 0, sumpp = 0, sumtt = 0, sumpt = 0;
+    double sse = 0.0; // myudelson
 
 	int nr_class=get_nr_class(model_);
 	double *prob_estimates=NULL;
@@ -148,8 +150,11 @@ void do_predict(FILE *input, FILE *output)
 			fprintf(output,"%g\n",predict_label);
 		}
 
+        sse += pow( ((predict_label==-1)?0:predict_label) - ((target_label==-1)?0:target_label), 2); // myudelson
+        
 		if(predict_label == target_label)
 			++correct;
+        
 		error += (predict_label-target_label)*(predict_label-target_label);
 		sump += predict_label;
 		sumt += target_label;
@@ -169,7 +174,7 @@ void do_predict(FILE *input, FILE *output)
 			);
 	}
 	else
-		info("Accuracy = %g%% (%d/%d)\n",(double) correct/total*100,correct,total);
+		info("Accuracy = %8.6f (%d/%d), RMSE = %8.6f\n",(double) correct/total,correct,total, sqrt(sse/total)); // myudelson
 	if(flag_predict_probability)
 		free(prob_estimates);
 }
