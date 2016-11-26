@@ -1,2 +1,6 @@
 *.xcuserstate
 *.xcodeproj
+*.o
+*.a
+predict
+train
