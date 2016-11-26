@@ -28,12 +28,12 @@ void exit_with_help()
 	"  for regression\n"
 	"	11 -- L2-regularized L2-loss support vector regression (primal)\n"
 	"	12 -- L2-regularized L2-loss support vector regression (dual)\n"
-    "	13 -- L2-regularized L1-loss support vector regression (dual)\n"
+	"	13 -- L2-regularized L1-loss support vector regression (dual)\n"
     "	14 -- L2-regularized logistic regression with grouped penalties\n" // MYudelson
 	"-c cost : set the parameter C (default 1)\n"
 	"-p epsilon : set the epsilon in loss function of SVR (default 0.1)\n"
 	"-e epsilon : set tolerance of termination criterion\n"
-	"	-s 0, 2, and 14\n" // MYudelson
+	"	-s 0, 2, and 14\n"
 	"		|f'(w)|_2 <= eps*min(pos,neg)/l*|f'(w0)|_2,\n"
 	"		where f is the primal function and pos/neg are # of\n"
 	"		positive/negative data (default 0.01)\n"
@@ -50,9 +50,8 @@ void exit_with_help()
 	"-B bias : if bias >= 0, instance x becomes [x; bias]; if < 0, no bias term added (default -1)\n"
 	"-wi weight: weights adjust the parameter C of different classes (see README for details)\n"
 	"-v n: n-fold cross validation mode\n"
+	"-C : find parameter C (only for -s 0 and 2)\n"
 	"-q : quiet mode (no outputs)\n"
-    "-g : group indexes for grouped lasso (-s 14) of the form '2,1-3,4-5'- 2 groups,\n"
-    "     columns 1-3 and columns 4-5\n"
 	);
 	exit(1);
 }
@@ -87,12 +86,16 @@ static char* readline(FILE *input)
 void parse_command_line(int argc, char **argv, char *input_file_name, char *model_file_name);
 void read_problem(const char *filename);
 void do_cross_validation();
+void do_find_parameter_C();
 
 struct feature_node *x_space;
 struct parameter param;
 struct problem prob;
 struct model* model_;
 int flag_cross_validation;
+int flag_find_C;
+int flag_C_specified;
+int flag_solver_specified;
 int nr_fold;
 double bias;
 
@@ -112,7 +115,11 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
-	if(flag_cross_validation)
+	if (flag_find_C)
+	{
+		do_find_parameter_C();
+	}
+	else if(flag_cross_validation)
 	{
 		do_cross_validation();
 	}
@@ -131,9 +138,22 @@ int main(int argc, char **argv)
 	free(prob.x);
 	free(x_space);
 	free(line);
-    if(prob.group!=NULL)free(prob.group); // MYudelson
-    
+	if(prob.group!=NULL)free(prob.group); // MYudelson
+	
 	return 0;
+}
+
+void do_find_parameter_C()
+{
+	double start_C, best_C, best_rate;
+	double max_C = 1024;
+	if (flag_C_specified)
+		start_C = param.C;
+	else
+		start_C = -1.0;
+	printf("Doing parameter search with %d-fold cross validation.\n", nr_fold);
+	find_parameter_C(&prob, &param, nr_fold, start_C, max_C, &best_C, &best_rate);
+	printf("Best C = %g  CV accuracy = %g%%\n", best_C, 100.0*best_rate);
 }
 
 void do_cross_validation()
@@ -177,7 +197,8 @@ void do_cross_validation()
 //            total_error += (v-y)*(v-y); // M.Yudelson repurpose from above
 			if(target[i] == prob.y[i])
 				++total_correct;
-        }
+		}
+//		printf("Cross Validation Accuracy = %g%%\n",100.0*total_correct/prob.l);
 		printf("Cross Validation Accuracy = %6.2f%%\n",100.0*total_correct/prob.l); // M.Yudelson was %g%%
 //		printf("Root Mean Squared Error = %6.4f\n",sqrt(total_error/prob.l)); // M.Yudelson add RMSE
 	}
@@ -198,10 +219,14 @@ void parse_command_line(int argc, char **argv, char *input_file_name, char *mode
 	param.nr_weight = 0;
 	param.weight_label = NULL;
 	param.weight = NULL;
-    param.n_group = 0;      // MYudelson
-    param.group_st = NULL;  // MYudelson
-    param.group_fi = NULL;  // MYudelson
+	param.init_sol = NULL;
 	flag_cross_validation = 0;
+	flag_C_specified = 0;
+	flag_solver_specified = 0;
+	flag_find_C = 0;
+	param.n_group = 0;      // MYudelson
+	param.group_st = NULL;  // MYudelson
+	param.group_fi = NULL;  // MYudelson
 	bias = -1;
 
 	// parse options
@@ -210,17 +235,19 @@ void parse_command_line(int argc, char **argv, char *input_file_name, char *mode
 		if(argv[i][0] != '-') break;
 		if(++i>=argc)
 			exit_with_help();
-        char *ch;           // MYudelson
-        bool start = true;  // MYudelson
-        int j;              // MYudelson
+		char *ch;           // MYudelson
+		bool start = true;  // MYudelson
+		int j;              // MYudelson
 		switch(argv[i-1][1])
 		{
 			case 's':
 				param.solver_type = atoi(argv[i]);
+				flag_solver_specified = 1;
 				break;
 
 			case 'c':
 				param.C = atof(argv[i]);
+				flag_C_specified = 1;
 				break;
 
 			case 'p':
@@ -257,22 +284,26 @@ void parse_command_line(int argc, char **argv, char *input_file_name, char *mode
 				print_func = &print_null;
 				i--;
 				break;
-
 			case 'g':   // vvvvv MYudelson
-                ch = strtok(argv[i],",-\n\t\r");
-                param.n_group = atoi(ch);
-                param.group_st = Malloc(int, param.n_group);
-                param.group_fi = Malloc(int, param.n_group);
-                ch = strtok(NULL,",-\n\t\r");
-                j=0;
-                while( ch != NULL) {
-                    if(start) param.group_st[j] = atoi(ch);
-                    else      param.group_fi[j] = atoi(ch);
-                    ch = strtok(NULL,",-\n\t\r");
-                    if(!start) j++;
-                    start = !start;
-                }
+				ch = strtok(argv[i],",-\n\t\r");
+				param.n_group = atoi(ch);
+				param.group_st = Malloc(int, param.n_group);
+				param.group_fi = Malloc(int, param.n_group);
+				ch = strtok(NULL,",-\n\t\r");
+				j=0;
+				while( ch != NULL) {
+					if(start) param.group_st[j] = atoi(ch);
+					else      param.group_fi[j] = atoi(ch);
+					ch = strtok(NULL,",-\n\t\r");
+					if(!start) j++;
+					start = !start;
+				}
 				break;    // ^^^^^ MYudelson
+
+			case 'C':
+				flag_find_C = 1;
+				i--;
+				break;
 
 			default:
 				fprintf(stderr,"unknown option: -%c\n", argv[i-1][1]);
@@ -301,12 +332,29 @@ void parse_command_line(int argc, char **argv, char *input_file_name, char *mode
 		sprintf(model_file_name,"%s.model",p);
 	}
 
+	// default solver for parameter selection is L2R_L2LOSS_SVC
+	if(flag_find_C)
+	{
+		if(!flag_cross_validation)
+			nr_fold = 5;
+		if(!flag_solver_specified)
+		{
+			fprintf(stderr, "Solver not specified. Using -s 2\n");
+			param.solver_type = L2R_L2LOSS_SVC;
+		}
+		else if(param.solver_type != L2R_LR && param.solver_type != L2R_LR_ME && param.solver_type != L2R_L2LOSS_SVC)
+		{
+			fprintf(stderr, "Warm-start parameter search only available for -s 0 and -s 2\n");
+			exit_with_help();
+		}
+	}
+
 	if(param.eps == INF)
 	{
 		switch(param.solver_type)
 		{
 			case L2R_LR:
-			case L2R_LR_ME:       // MYudelson
+			case L2R_LR_ME:
 			case L2R_L2LOSS_SVC:
 				param.eps = 0.01;
 				break;
@@ -335,7 +383,7 @@ void parse_command_line(int argc, char **argv, char *input_file_name, char *mode
 void read_problem(const char *filename)
 {
 	int max_index, inst_max_index, i;
-	long int elements, j;
+	size_t elements, j;
 	FILE *fp = fopen(filename,"r");
 	char *endptr;
 	char *idx, *val, *label;
@@ -346,11 +394,11 @@ void read_problem(const char *filename)
 		exit(1);
 	}
 
-	prob.l = 0; // MVY: number of rows
-	elements = 0; // MVY: total number of non-zero variables in rows + .l biases
+	prob.l = 0; // MYudelson: number of rows
+	elements = 0; // MYudelson: total number of non-zero variables in rows + .l biases
 	max_line_len = 1024;
 	line = Malloc(char,max_line_len);
-	while(readline(fp)!=NULL) // in this loop: count number of rows and columns of large sparse matrix
+	while(readline(fp)!=NULL) // MYudelson: in this loop: count number of rows and columns of large sparse matrix
 	{
 		char *p = strtok(line," \t"); // label
 
@@ -374,53 +422,53 @@ void read_problem(const char *filename)
 	x_space = Malloc(struct feature_node,elements+prob.l);
 
 	max_index = 0;
-	j=0; // MVY: setup, j - feature counter
-	for(i=0;i<prob.l;i++) // MVY: setup, i - line counter
+	j=0; // MYudelson: setup, j - feature counter
+	for(i=0;i<prob.l;i++)  // MYudelson: setup, i - line counter
 	{
 		inst_max_index = 0; // strtol gives 0 if wrong format
-		readline(fp); // MVY: read new line
-		prob.x[i] = &x_space[j]; // MVY: do new label
-		label = strtok(line," \t\n"); // MVY: read new label
+		readline(fp); // MYudelson: read new line
+		prob.x[i] = &x_space[j]; // MYudelson: do new label
+		label = strtok(line," \t\n"); // MYudelson: read new label
 		if(label == NULL) // empty line
 			exit_input_error(i+1);
 
-		prob.y[i] = strtod(label,&endptr); // MVY: do new label
+		prob.y[i] = strtod(label,&endptr); // MYudelson: do new label
 		if(endptr == label || *endptr != '\0')
 			exit_input_error(i+1);
 
 		while(1)
 		{
-			idx = strtok(NULL,":");  // MVY: read variable index
-			val = strtok(NULL," \t"); // MVY: read variable value
+			idx = strtok(NULL,":");  // MYudelson: read variable index
+			val = strtok(NULL," \t"); // MYudelson: read variable value
 
 			if(val == NULL)
 				break;
 
 			errno = 0;
-			x_space[j].index = (int) strtol(idx,&endptr,10); // MVY: do new variable
+			x_space[j].index = (int) strtol(idx,&endptr,10); // MYudelson: do new variable
 			if(endptr == idx || errno != 0 || *endptr != '\0' || x_space[j].index <= inst_max_index)
 				exit_input_error(i+1);
 			else
-				inst_max_index = x_space[j].index; // MVY: do new variable
+				inst_max_index = x_space[j].index; // MYudelson: do new variable
 
 			errno = 0;
-			x_space[j].value = strtod(val,&endptr); // MVY: do new variable
+			x_space[j].value = strtod(val,&endptr); // MYudelson: do new variable
 			if(endptr == val || errno != 0 || (*endptr != '\0' && !isspace(*endptr)))
 				exit_input_error(i+1);
 
-			++j; // MVY: do new variable
+			++j; // MYudelson: do new variable
 		}
 
-		if(inst_max_index > max_index) // MVY: do after new line vvvvvv
+		if(inst_max_index > max_index) // MYudelson: do after new line vvvvvv
 			max_index = inst_max_index;
 
 		if(prob.bias >= 0)
 			x_space[j++].value = prob.bias;
 
-		x_space[j++].index = -1; // MVY: do after new line ^^^^^^^
+		x_space[j++].index = -1; // MYudelson: do after new line ^^^^^^^
 	}
 
-	if(prob.bias >= 0) // MVY: do after data end vvvvvv
+	if(prob.bias >= 0) // MYudelson: do after data end vvvvvv
 	{
 		prob.n=max_index+1;
 		for(i=1;i<prob.l;i++)
@@ -428,19 +476,19 @@ void read_problem(const char *filename)
 		x_space[j-2].index = prob.n;
 	}
 	else
-		prob.n=max_index; // MVY: do after data end ^^^^^^^
+		prob.n=max_index; // MYudelson: do after data end ^^^^^^^
 
 	fclose(fp);
-
-    // create groups index for n columns and l rows // MYudelson
-    if(param.n_group>0) { // MYudelson
-        prob.group = (int *)calloc((size_t)prob.n,sizeof(int)); // Malloc(int, prob.n); // MYudelson
-        prob.n_group = param.n_group;                                // MYudelson
-        for(int i=0; i<param.n_group; i++) { // MYudelson
-            for( j=(param.group_st[i]-1); j<param.group_fi[i]; j++ ) {// MYudelson
-                prob.group[j] = i+1; // MYudelson
-            }
-        }
-    } // MYudelson
-    
+	
+	// create groups index for n columns and l rows // MYudelson
+	if(param.n_group>0) { // MYudelson
+		prob.group = (int *)calloc((size_t)prob.n,sizeof(int)); // Malloc(int, prob.n); // MYudelson
+		prob.n_group = param.n_group;                                // MYudelson
+		for(int i=0; i<param.n_group; i++) { // MYudelson
+			for( j=(param.group_st[i]-1); j<param.group_fi[i]; j++ ) {// MYudelson
+				prob.group[j] = i+1; // MYudelson
+			}
+		}
+	} // MYudelson
+	
 }

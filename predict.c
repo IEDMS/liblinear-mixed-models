@@ -4,7 +4,7 @@
 #include <string.h>
 #include <errno.h>
 #include "linear.h"
-#include "Math.h" //myudelson
+ #include "Math.h" //myudelson
 
 int print_null(const char *s,...) {return 0;}
 
@@ -49,7 +49,7 @@ void do_predict(FILE *input, FILE *output)
 	int total = 0;
 	double error = 0;
 	double sump = 0, sumt = 0, sumpp = 0, sumtt = 0, sumpt = 0;
-    double sse = 0.0; // myudelson
+	double sse = 0.0; // myudelson
 
 	int nr_class=get_nr_class(model_);
 	double *prob_estimates=NULL;
@@ -149,12 +149,11 @@ void do_predict(FILE *input, FILE *output)
 			predict_label = predict(model_,x);
 			fprintf(output,"%g\n",predict_label);
 		}
+		
+		sse += pow( ((predict_label==-1)?0:predict_label) - ((target_label==-1)?0:target_label), 2); // myudelson
 
-        sse += pow( ((predict_label==-1)?0:predict_label) - ((target_label==-1)?0:target_label), 2); // myudelson
-        
 		if(predict_label == target_label)
 			++correct;
-        
 		error += (predict_label-target_label)*(predict_label-target_label);
 		sump += predict_label;
 		sumt += target_label;
@@ -163,9 +162,7 @@ void do_predict(FILE *input, FILE *output)
 		sumpt += predict_label*target_label;
 		++total;
 	}
-	if(model_->param.solver_type==L2R_L2LOSS_SVR ||
-	   model_->param.solver_type==L2R_L1LOSS_SVR_DUAL ||
-	   model_->param.solver_type==L2R_L2LOSS_SVR_DUAL)
+	if(check_regression_model(model_))
 	{
 		info("Mean squared error = %g (regression)\n",error/total);
 		info("Squared correlation coefficient = %g (regression)\n",

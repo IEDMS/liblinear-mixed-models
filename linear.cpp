@@ -27,6 +27,7 @@ static void print_string_stdout(const char *s)
 	fputs(s,stdout);
 	fflush(stdout);
 }
+static void print_null(const char *s) {}
 
 static void (*liblinear_print_string) (const char *) = &print_string_stdout;
 
@@ -43,6 +44,40 @@ static void info(const char *fmt,...)
 #else
 static void info(const char *fmt,...) {}
 #endif
+class sparse_operator
+{
+public:
+	static double nrm2_sq(const feature_node *x)
+	{
+		double ret = 0;
+		while(x->index != -1)
+		{
+			ret += x->value*x->value;
+			x++;
+		}
+		return (ret);
+	}
+
+	static double dot(const double *s, const feature_node *x)
+	{
+		double ret = 0;
+		while(x->index != -1)
+		{
+			ret += s[x->index-1]*x->value;
+			x++;
+		}
+		return (ret);
+	}
+
+	static void axpy(const double a, const feature_node *x, double *y)
+	{
+		while(x->index != -1)
+		{
+			y[x->index-1] += a*x->value;
+			x++;
+		}
+	}
+};
 
 class l2r_lr_fun: public function
 {
@@ -84,7 +119,7 @@ l2r_lr_fun::~l2r_lr_fun()
 }
 
 
-double l2r_lr_fun::fun(double *w) // objective function
+double l2r_lr_fun::fun(double *w)  // objective function
 {
 	int i;
 	double f=0;
@@ -92,7 +127,7 @@ double l2r_lr_fun::fun(double *w) // objective function
 	int l=prob->l;
 	int w_size=get_nr_variable();
 
-	Xv(w, z);  // z = X*w 
+	Xv(w, z);  // z = X*w
 
 	for(i=0;i<w_size;i++)   // compute L2 penalty, to be modified in mixed-effect version
 		f += w[i]*w[i];     // this is what modified in mixed-effect version
@@ -139,12 +174,19 @@ void l2r_lr_fun::Hv(double *s, double *Hs)
 	int l=prob->l;
 	int w_size=get_nr_variable();
 	double *wa = new double[l];
+	feature_node **x=prob->x;
 
-	Xv(s, wa); // logistic response in wa
+	for(i=0;i<w_size;i++)
+		Hs[i] = 0;
 	for(i=0;i<l;i++)
+	{
+		feature_node * const xi=x[i];
+		wa[i] = sparse_operator::dot(s, xi);
+		
 		wa[i] = C[i]*D[i]*wa[i];
 
-	XTv(wa, Hs);
+		sparse_operator::axpy(wa[i], xi, Hs);
+	}
 	for(i=0;i<w_size;i++)
 		Hs[i] = s[i] + Hs[i];
 	delete[] wa;
@@ -157,15 +199,7 @@ void l2r_lr_fun::Xv(double *v, double *Xv) // v==w, Xv==z
 	feature_node **x=prob->x;
 
 	for(i=0;i<l;i++)
-	{
-		feature_node *s=x[i];
-		Xv[i]=0;
-		while(s->index!=-1)
-		{
-			Xv[i]+=v[s->index-1]*s->value;
-			s++;
-		}
-	}
+		Xv[i]=sparse_operator::dot(v, x[i]);
 }
 
 void l2r_lr_fun::XTv(double *v, double *XTv) // gradeint helper, v--transformed z, XTv - helper grad value
@@ -178,63 +212,56 @@ void l2r_lr_fun::XTv(double *v, double *XTv) // gradeint helper, v--transformed 
 	for(i=0;i<w_size;i++)
 		XTv[i]=0;
 	for(i=0;i<l;i++)
-	{
-		feature_node *s=x[i];
-		while(s->index!=-1)
-		{
-			XTv[s->index-1]+=v[i]*s->value;
-			s++;
-		}
-	}
+		sparse_operator::axpy(v[i], x[i], XTv);
 }
 
-// vvvvv added by MYudelson, l2-regularized logistic regression, regularization
-//  applied only to 'hierarchical' parmateres making it a mixed effect regression
+// vvvvv added by MYudelson, l4-regularized logistic regression, regularization
+//  applied only to 'hierarchical' parameters making it a mixed effect regression
 // differences with native version of l2r_lr_fun will be marked by 'MYudelson'
 class l2r_lr_me_fun: public function
 {
 public:
 	l2r_lr_me_fun(const problem *prob, double *C);
 	~l2r_lr_me_fun();
-    
+	
 	double fun(double *w);
 	void grad(double *w, double *g);
 	void Hv(double *s, double *Hs);
-    
+	
 	int get_nr_variable(void);
-    
+	
 private:
 	void Xv(double *v, double *Xv);
 	void XTv(double *v, double *XTv);
-    
+	
 	double *C;
 	double *z;
 	double *D;
 	const problem *prob;
-    
-    int n_group; // MYudelson copy from problem
-    int *group;  // MYudelson copy pointer from problem
-    double *group_pen; // MYudelson internal variable here
+	
+	int n_group; // MYudelson copy from problem
+	int *group;  // MYudelson copy pointer from problem
+	double *group_pen; // MYudelson internal variable here
 };
 
 l2r_lr_me_fun::l2r_lr_me_fun(const problem *prob, double *C) {
 	int l=prob->l;
-    
+	
 	this->prob = prob;
-    
+	
 	z = new double[l]; // response
 	D = new double[l]; // diagonal for Hessian
 	this->C = C;
-    
-    n_group = prob->n_group; // MYudelson
-    group   = prob->group;   // MYudelson
-    group_pen = new double[n_group]; // MYudelson
+	
+	n_group = prob->n_group; // MYudelson
+	group   = prob->group;   // MYudelson
+	group_pen = new double[n_group]; // MYudelson
 }
 
 l2r_lr_me_fun::~l2r_lr_me_fun() {
 	delete[] z;
 	delete[] D;
-    delete[] group_pen;  // MYudelson
+	delete[] group_pen;  // MYudelson
 }
 
 double l2r_lr_me_fun::fun(double *w) { // objective function, compute mixed effect penalties here, MYudelson
@@ -243,21 +270,21 @@ double l2r_lr_me_fun::fun(double *w) { // objective function, compute mixed effe
 	double *y=prob->y;
 	int l=prob->l;
 	int w_size=get_nr_variable();
-    
+	
 	Xv(w, z); // z = X*w
-    
-    for(i=0;i<n_group;i++)  // MYudelson
-        group_pen[i] = 0.0; // MYudelson
-    
+	
+	for(i=0;i<n_group;i++)  // MYudelson
+		group_pen[i] = 0.0; // MYudelson
+	
 	for(i=0;i<w_size;i++) { // compute L2 penalty - here's where we modify to do Grouped
-        //		f += w[i]*w[i]; // MYudelson
-        // since group penalty is equivalent to L2, we do not change here, but compute grouped penalties for gradients
-        // do not penalize non-grouped variables here
-        if(group[i]>0) { //MYudelson it's in a group
-            f += w[i]*w[i]; // penalize only grouped variables
-            group_pen[ group[i]-1 ] += w[i]*w[i]; // MYudelson '-1' for converting 1-started index to 0-started
-        }
-    } // till the end of function, as it were
+		//		f += w[i]*w[i]; // MYudelson
+		// since group penalty is equivalent to L2, we do not change here, but compute grouped penalties for gradients
+		// do not penalize non-grouped variables here
+		if(group[i]>0) { //MYudelson it's in a group
+			f += w[i]*w[i]; // penalize only grouped variables
+			group_pen[ group[i]-1 ] += w[i]*w[i]; // MYudelson '-1' for converting 1-started index to 0-started
+		}
+	} // till the end of function, as it were
 	f /= 2.0; // ... don't forget the 1/2 multiplier
 	for(i=0;i<l;i++) // from wTx compute the rest of objective function
 	{
@@ -267,7 +294,7 @@ double l2r_lr_me_fun::fun(double *w) { // objective function, compute mixed effe
 		else
 			f += C[i]*(-yz+log(1 + exp(yz))); // easier to compute
 	}
-    
+	
 	return(f);
 }
 
@@ -276,7 +303,7 @@ void l2r_lr_me_fun::grad(double *w, double *g) { // MYudelson
 	double *y=prob->y;
 	int l=prob->l;
 	int w_size=get_nr_variable();
-    
+	
 	for(i=0;i<l;i++)
 	{
 		z[i] = 1/(1 + exp(-y[i]*z[i])); // convert logit version to probabilities
@@ -284,75 +311,71 @@ void l2r_lr_me_fun::grad(double *w, double *g) { // MYudelson
 		z[i] = C[i]*(z[i]-1)*y[i]; // convert z: weight it by C, not(z) * y
 	}
 	XTv(z, g); // z*X'
-    
+	
 	for(i=0;i<w_size;i++) {
-        //		g[i] = w[i] + g[i]; // MYudelson
-        if( group[i] > 0 ) { // if is in a group MYudelson
-            if( group_pen[ group[i]-1 ] > 0)
-                g[i] = g[i] + 2*w[i]; // division is for grouped lasso / group_pen[ group[i]-1 ]; // MYudelson with penalty
-            // else // MYudelson
-            //    g[i] = g[i] + w[i]; // MYudelson
-        }
-        // else // at this point do not penalize non grouped variable // MYudelson
-        //            g[i] = w[i] + g[i]; // MYudelson without penalty
-    } // MYudelson
+		//		g[i] = w[i] + g[i]; // MYudelson
+		if( group[i] > 0 ) { // if is in a group MYudelson
+			if( group_pen[ group[i]-1 ] > 0)
+				g[i] = g[i] + 2*w[i]; // division is for grouped lasso / group_pen[ group[i]-1 ]; // MYudelson with penalty
+			// else // MYudelson
+			//    g[i] = g[i] + w[i]; // MYudelson
+		}
+		// else // at this point do not penalize non grouped variable // MYudelson
+		//            g[i] = w[i] + g[i]; // MYudelson without penalty
+	} // MYudelson
 }
 
 int l2r_lr_me_fun::get_nr_variable(void) { // no changes
 	return prob->n;
 }
 
-void l2r_lr_me_fun::Hv(double *s, double *Hs) { // no changes
+void l2r_lr_me_fun::Hv(double *s, double *Hs)  // no change
+{
 	int i;
 	int l=prob->l;
 	int w_size=get_nr_variable();
 	double *wa = new double[l];
-    
-	Xv(s, wa); // logistic response in wa
+	feature_node **x=prob->x;
+	
+	for(i=0;i<w_size;i++)
+		Hs[i] = 0;
 	for(i=0;i<l;i++)
+	{
+		feature_node * const xi=x[i];
+		wa[i] = sparse_operator::dot(s, xi);
+		
 		wa[i] = C[i]*D[i]*wa[i];
-    
-	XTv(wa, Hs);
+		
+		sparse_operator::axpy(wa[i], xi, Hs);
+	}
 	for(i=0;i<w_size;i++)
 		Hs[i] = s[i] + Hs[i];
 	delete[] wa;
 }
 
-void l2r_lr_me_fun::Xv(double *v, double *Xv) { // v==w, Xv==z // no changes
+void l2r_lr_me_fun::Xv(double *v, double *Xv) // v==w, Xv==z // no change
+{
 	int i;
 	int l=prob->l;
 	feature_node **x=prob->x;
-    
+	
 	for(i=0;i<l;i++)
-	{
-		feature_node *s=x[i];
-		Xv[i]=0;
-		while(s->index!=-1)
-		{
-			Xv[i]+=v[s->index-1]*s->value;
-			s++;
-		}
-	}
+		Xv[i]=sparse_operator::dot(v, x[i]);
 }
 
-void l2r_lr_me_fun::XTv(double *v, double *XTv) { // gradeint helper, v--transformed z, XTv - helper grad value // no changes
+void l2r_lr_me_fun::XTv(double *v, double *XTv) // gradeint helper, v--transformed z, XTv - helper grad value  // no change
+{
 	int i;
 	int l=prob->l;
 	int w_size=get_nr_variable();
 	feature_node **x=prob->x;
-    
+	
 	for(i=0;i<w_size;i++)
 		XTv[i]=0;
 	for(i=0;i<l;i++)
-	{
-		feature_node *s=x[i];
-		while(s->index!=-1)
-		{
-			XTv[s->index-1]+=v[i]*s->value;
-			s++;
-		}
-	}
+		sparse_operator::axpy(v[i], x[i], XTv);
 }
+
 // ^^^^^ added MYudelson
 
 class l2r_l2_svc_fun: public function
@@ -369,7 +392,6 @@ public:
 
 protected:
 	void Xv(double *v, double *Xv);
-	void subXv(double *v, double *Xv);
 	void subXTv(double *v, double *XTv);
 
 	double *C;
@@ -454,12 +476,19 @@ void l2r_l2_svc_fun::Hv(double *s, double *Hs)
 	int i;
 	int w_size=get_nr_variable();
 	double *wa = new double[sizeI];
+	feature_node **x=prob->x;
 
-	subXv(s, wa);
+	for(i=0;i<w_size;i++)
+		Hs[i]=0;
 	for(i=0;i<sizeI;i++)
+	{
+		feature_node * const xi=x[I[i]];
+		wa[i] = sparse_operator::dot(s, xi);
+		
 		wa[i] = C[I[i]]*wa[i];
 
-	subXTv(wa, Hs);
+		sparse_operator::axpy(wa[i], xi, Hs);
+	}
 	for(i=0;i<w_size;i++)
 		Hs[i] = s[i] + 2*Hs[i];
 	delete[] wa;
@@ -472,32 +501,7 @@ void l2r_l2_svc_fun::Xv(double *v, double *Xv)
 	feature_node **x=prob->x;
 
 	for(i=0;i<l;i++)
-	{
-		feature_node *s=x[i];
-		Xv[i]=0;
-		while(s->index!=-1)
-		{
-			Xv[i]+=v[s->index-1]*s->value;
-			s++;
-		}
-	}
-}
-
-void l2r_l2_svc_fun::subXv(double *v, double *Xv)
-{
-	int i;
-	feature_node **x=prob->x;
-
-	for(i=0;i<sizeI;i++)
-	{
-		feature_node *s=x[I[i]];
-		Xv[i]=0;
-		while(s->index!=-1)
-		{
-			Xv[i]+=v[s->index-1]*s->value;
-			s++;
-		}
-	}
+		Xv[i]=sparse_operator::dot(v, x[i]);
 }
 
 void l2r_l2_svc_fun::subXTv(double *v, double *XTv)
@@ -509,14 +513,7 @@ void l2r_l2_svc_fun::subXTv(double *v, double *XTv)
 	for(i=0;i<w_size;i++)
 		XTv[i]=0;
 	for(i=0;i<sizeI;i++)
-	{
-		feature_node *s=x[I[i]];
-		while(s->index!=-1)
-		{
-			XTv[s->index-1]+=v[i]*s->value;
-			s++;
-		}
-	}
+		sparse_operator::axpy(v[i], x[I[i]], XTv);
 }
 
 class l2r_l2_svr_fun: public l2r_l2_svc_fun
@@ -997,14 +994,10 @@ static void solve_l2r_l1l2_svc(
 	{
 		QD[i] = diag[GETI(i)];
 
-		feature_node *xi = prob->x[i];
-		while (xi->index != -1)
-		{
-			double val = xi->value;
-			QD[i] += val*val;
-			w[xi->index-1] += y[i]*alpha[i]*val;
-			xi++;
-		}
+		feature_node * const xi = prob->x[i];
+		QD[i] += sparse_operator::nrm2_sq(xi);
+		sparse_operator::axpy(y[i]*alpha[i], xi, w);
+
 		index[i] = i;
 	}
 
@@ -1022,16 +1015,10 @@ static void solve_l2r_l1l2_svc(
 		for (s=0; s<active_size; s++)
 		{
 			i = index[s];
-			G = 0;
-			schar yi = y[i];
+			const schar yi = y[i];
+			feature_node * const xi = prob->x[i];
 
-			feature_node *xi = prob->x[i];
-			while(xi->index!= -1)
-			{
-				G += w[xi->index-1]*(xi->value);
-				xi++;
-			}
-			G = G*yi-1;
+			G = yi*sparse_operator::dot(w, xi)-1;
 
 			C = upper_bound[GETI(i)];
 			G += alpha[i]*diag[GETI(i)];
@@ -1072,12 +1059,7 @@ static void solve_l2r_l1l2_svc(
 				double alpha_old = alpha[i];
 				alpha[i] = min(max(alpha[i] - G/QD[i], 0.0), C);
 				d = (alpha[i] - alpha_old)*yi;
-				xi = prob->x[i];
-				while (xi->index != -1)
-				{
-					w[xi->index-1] += d*xi->value;
-					xi++;
-				}
+				sparse_operator::axpy(d, xi, w);
 			}
 		}
 
@@ -1177,7 +1159,7 @@ static void solve_l2r_l1l2_svr(
 	double d, G, H;
 	double Gmax_old = INF;
 	double Gmax_new, Gnorm1_new;
-	double Gnorm1_init;
+	double Gnorm1_init = -1.0; // Gnorm1_init is initialized at the first iteration
 	double *beta = new double[l];
 	double *QD = new double[l];
 	double *y = prob->y;
@@ -1202,15 +1184,9 @@ static void solve_l2r_l1l2_svr(
 		w[i] = 0;
 	for(i=0; i<l; i++)
 	{
-		QD[i] = 0;
-		feature_node *xi = prob->x[i];
-		while(xi->index != -1)
-		{
-			double val = xi->value;
-			QD[i] += val*val;
-			w[xi->index-1] += beta[i]*val;
-			xi++;
-		}
+		feature_node * const xi = prob->x[i];
+		QD[i] = sparse_operator::nrm2_sq(xi);
+		sparse_operator::axpy(beta[i], xi, w);
 
 		index[i] = i;
 	}
@@ -1233,14 +1209,8 @@ static void solve_l2r_l1l2_svr(
 			G = -y[i] + lambda[GETI(i)]*beta[i];
 			H = QD[i] + lambda[GETI(i)];
 
-			feature_node *xi = prob->x[i];
-			while(xi->index != -1)
-			{
-				int ind = xi->index-1;
-				double val = xi->value;
-				G += val*w[ind];
-				xi++;
-			}
+			feature_node * const xi = prob->x[i];
+			G += sparse_operator::dot(w, xi);
 
 			double Gp = G+p;
 			double Gn = G-p;
@@ -1307,14 +1277,7 @@ static void solve_l2r_l1l2_svr(
 			d = beta[i]-beta_old;
 
 			if(d != 0)
-			{
-				xi = prob->x[i];
-				while(xi->index != -1)
-				{
-					w[xi->index-1] += d*xi->value;
-					xi++;
-				}
-			}
+				sparse_operator::axpy(d, xi, w);
 		}
 
 		if(iter == 0)
@@ -1427,15 +1390,9 @@ void solve_l2r_lr_dual(const problem *prob, double *w, double eps, double Cp, do
 		w[i] = 0;
 	for(i=0; i<l; i++)
 	{
-		xTx[i] = 0;
-		feature_node *xi = prob->x[i];
-		while (xi->index != -1)
-		{
-			double val = xi->value;
-			xTx[i] += val*val;
-			w[xi->index-1] += y[i]*alpha[2*i]*val;
-			xi++;
-		}
+		feature_node * const xi = prob->x[i];
+		xTx[i] = sparse_operator::nrm2_sq(xi);
+		sparse_operator::axpy(y[i]*alpha[2*i], xi, w);
 		index[i] = i;
 	}
 
@@ -1451,16 +1408,11 @@ void solve_l2r_lr_dual(const problem *prob, double *w, double eps, double Cp, do
 		for (s=0; s<l; s++)
 		{
 			i = index[s];
-			schar yi = y[i];
+			const schar yi = y[i];
 			double C = upper_bound[GETI(i)];
 			double ywTx = 0, xisq = xTx[i];
-			feature_node *xi = prob->x[i];
-			while (xi->index != -1)
-			{
-				ywTx += w[xi->index-1]*xi->value;
-				xi++;
-			}
-			ywTx *= y[i];
+			feature_node * const xi = prob->x[i];
+			ywTx = yi*sparse_operator::dot(w, xi);
 			double a = xisq, b = ywTx;
 
 			// Decide to minimize g_1(z) or g_2(z)
@@ -1502,12 +1454,7 @@ void solve_l2r_lr_dual(const problem *prob, double *w, double eps, double Cp, do
 			{
 				alpha[ind1] = z;
 				alpha[ind2] = C-z;
-				xi = prob->x[i];
-				while (xi->index != -1)
-				{
-					w[xi->index-1] += sign*(z-alpha_old)*yi*xi->value;
-					xi++;
-				}
+				sparse_operator::axpy(sign*(z-alpha_old)*yi, xi, w);
 			}
 		}
 
@@ -1576,7 +1523,7 @@ static void solve_l1r_l2_svc(
 	double d, G_loss, G, H;
 	double Gmax_old = INF;
 	double Gmax_new, Gnorm1_new;
-	double Gnorm1_init;
+	double Gnorm1_init = -1.0; // Gnorm1_init is initialized at the first iteration
 	double d_old, d_diff;
 	double loss_old, loss_new;
 	double appxcond, cond;
@@ -1701,11 +1648,7 @@ static void solve_l1r_l2_svc(
 				if(appxcond <= 0)
 				{
 					x = prob_col->x[j];
-					while(x->index != -1)
-					{
-						b[x->index-1] += d_diff*x->value;
-						x++;
-					}
+					sparse_operator::axpy(d_diff, x, b);
 					break;
 				}
 
@@ -1765,11 +1708,7 @@ static void solve_l1r_l2_svc(
 				{
 					if(w[i]==0) continue;
 					x = prob_col->x[i];
-					while(x->index != -1)
-					{
-						b[x->index-1] -= w[i]*x->value;
-						x++;
-					}
+					sparse_operator::axpy(-w[i], x, b);
 				}
 			}
 		}
@@ -1866,7 +1805,7 @@ static void solve_l1r_lr(
 	double sigma = 0.01;
 	double w_norm, w_norm_new;
 	double z, G, H;
-	double Gnorm1_init;
+	double Gnorm1_init = -1.0; // Gnorm1_init is initialized at the first iteration
 	double Gmax_old = INF;
 	double Gmax_new, Gnorm1_new;
 	double QP_Gmax_old = INF;
@@ -2058,12 +1997,7 @@ static void solve_l1r_lr(
 				wpd[j] += z;
 
 				x = prob_col->x[j];
-				while(x->index != -1)
-				{
-					int ind = x->index-1;
-					xTd[ind] += x->value*z;
-					x++;
-				}
+				sparse_operator::axpy(z, x, xTd);
 			}
 
 			iter++;
@@ -2155,11 +2089,7 @@ static void solve_l1r_lr(
 			{
 				if(w[i]==0) continue;
 				x = prob_col->x[i];
-				while(x->index != -1)
-				{
-					exp_wTx[x->index-1] += w[i]*x->value;
-					x++;
-				}
+				sparse_operator::axpy(w[i], x, exp_wTx);
 			}
 
 			for(int i=0; i<l; i++)
@@ -2218,8 +2148,8 @@ static void transpose(const problem *prob, feature_node **x_space_ret, problem *
 	int i;
 	int l = prob->l;
 	int n = prob->n;
-	int nnz = 0;
-	int *col_ptr = new int[n+1];
+	size_t nnz = 0;
+	size_t *col_ptr = new size_t [n+1];
 	feature_node *x_space;
 	prob_col->l = l;
 	prob_col->n = n;
@@ -2307,6 +2237,24 @@ static void group_classes(const problem *prob, int *nr_class_ret, int **label_re
 		}
 	}
 
+	//
+	// Labels are ordered by their first occurrence in the training set. 
+	// However, for two-class sets with -1/+1 labels and -1 appears first, 
+	// we swap labels to ensure that internally the binary SVM has positive data corresponding to the +1 instances.
+	//
+	if (nr_class == 2 && label[0] == -1 && label[1] == 1)
+	{
+		swap(label[0],label[1]);
+		swap(count[0],count[1]);
+		for(i=0;i<l;i++)
+		{
+			if(data_label[i] == 0)
+				data_label[i] = 1;
+			else
+				data_label[i] = 0;
+		}
+	}
+
 	int *start = Malloc(int,nr_class);
 	start[0] = 0;
 	for(i=1;i<nr_class;i++)
@@ -2329,14 +2277,18 @@ static void group_classes(const problem *prob, int *nr_class_ret, int **label_re
 
 static void train_one(const problem *prob, const parameter *param, double *w, double Cp, double Cn)
 {
-	double eps=param->eps;
+	//inner and outer tolerances for TRON
+	double eps = param->eps;
+	double eps_cg = 0.1;
+	if(param->init_sol != NULL)
+		eps_cg = 0.5;
+
 	int pos = 0;
 	int neg = 0;
 	for(int i=0;i<prob->l;i++)
 		if(prob->y[i] > 0)
 			pos++;
 	neg = prob->l - pos;
-
 	double primal_solver_tol = eps*max(min(pos,neg), 1)/prob->l;
 
 	function *fun_obj=NULL;
@@ -2353,11 +2305,11 @@ static void train_one(const problem *prob, const parameter *param, double *w, do
 					C[i] = Cn;
 			}
 			fun_obj=new l2r_lr_fun(prob, C);
-			TRON tron_obj(fun_obj, primal_solver_tol);
+			TRON tron_obj(fun_obj, primal_solver_tol, eps_cg);
 			tron_obj.set_print_string(liblinear_print_string);
 			tron_obj.tron(w);
 			delete fun_obj;
-			delete C;
+			delete[] C;
 			break;
 		}
 		case L2R_L2LOSS_SVC:
@@ -2371,11 +2323,11 @@ static void train_one(const problem *prob, const parameter *param, double *w, do
 					C[i] = Cn;
 			}
 			fun_obj=new l2r_l2_svc_fun(prob, C);
-			TRON tron_obj(fun_obj, primal_solver_tol);
+			TRON tron_obj(fun_obj, primal_solver_tol, eps_cg);
 			tron_obj.set_print_string(liblinear_print_string);
 			tron_obj.tron(w);
 			delete fun_obj;
-			delete C;
+			delete[] C;
 			break;
 		}
 		case L2R_L2LOSS_SVC_DUAL:
@@ -2420,7 +2372,7 @@ static void train_one(const problem *prob, const parameter *param, double *w, do
 			tron_obj.set_print_string(liblinear_print_string);
 			tron_obj.tron(w);
 			delete fun_obj;
-			delete C;
+			delete[] C;
 			break;
 
 		}
@@ -2454,6 +2406,36 @@ static void train_one(const problem *prob, const parameter *param, double *w, do
 	}
 }
 
+// Calculate the initial C for parameter selection
+static double calc_start_C(const problem *prob, const parameter *param)
+{
+	int i;
+	double xTx,max_xTx;
+	max_xTx = 0;
+	for(i=0; i<prob->l; i++)
+	{
+		xTx = 0;
+		feature_node *xi=prob->x[i];
+		while(xi->index != -1)
+		{
+			double val = xi->value;
+			xTx += val*val;
+			xi++;
+		}
+		if(xTx > max_xTx)
+			max_xTx = xTx;
+	}
+
+	double min_C = 1.0;
+	if(param->solver_type == L2R_LR)
+		min_C = 1.0 / (prob->l * max_xTx);
+	else if(param->solver_type == L2R_L2LOSS_SVC)
+		min_C = 1.0 / (2 * prob->l * max_xTx);
+
+	return pow( 2, floor(log(min_C) / log(2.0)) );
+}
+
+
 //
 // Interface functions
 //
@@ -2472,14 +2454,14 @@ model* train(const problem *prob, const parameter *param)
 	model_->param = *param;
 	model_->bias = prob->bias;
 
-	if(param->solver_type == L2R_L2LOSS_SVR ||
-	   param->solver_type == L2R_L1LOSS_SVR_DUAL ||
-	   param->solver_type == L2R_L2LOSS_SVR_DUAL)
+	if(check_regression_model(model_))
 	{
 		model_->w = Malloc(double, w_size);
+		for(i=0; i<w_size; i++)
+			model_->w[i] = 0;
 		model_->nr_class = 2;
 		model_->label = NULL;
-		train_one(prob, param, &model_->w[0], 0, 0);
+		train_one(prob, param, model_->w, 0, 0);
 	}
 	else
 	{
@@ -2523,12 +2505,12 @@ model* train(const problem *prob, const parameter *param)
 		sub_prob.n = n;
 		sub_prob.x = Malloc(feature_node *,sub_prob.l);
 		sub_prob.y = Malloc(double,sub_prob.l);
-        if(prob->n_group>0) {                      // M.Yudelson
-            sub_prob.n_group = prob->n_group;      // M.Yudelson
-            sub_prob.group = Malloc(int, prob->n); // M.Yudelson
-            for(i=0;i<n;i++)                       // M.Yudelson
-                sub_prob.group[i] = prob->group[i];      // M.Yudelson
-        }                                          // M.Yudelson
+		if(prob->n_group>0) {                      // M.Yudelson
+			sub_prob.n_group = prob->n_group;      // M.Yudelson
+			sub_prob.group = Malloc(int, prob->n); // M.Yudelson
+			for(i=0;i<n;i++)                       // M.Yudelson
+				sub_prob.group[i] = prob->group[i];      // M.Yudelson
+		}                                          // M.Yudelson
 
 		for(k=0; k<sub_prob.l; k++)
 			sub_prob.x[k] = x[k];
@@ -2555,7 +2537,15 @@ model* train(const problem *prob, const parameter *param)
 					sub_prob.y[k] = +1;
 				for(; k<sub_prob.l; k++)
 					sub_prob.y[k] = -1;
-				train_one(&sub_prob, param, &model_->w[0], weighted_C[0], weighted_C[1]);
+				
+				if(param->init_sol != NULL)
+					for(i=0;i<w_size;i++)
+						model_->w[i] = param->init_sol[i];
+				else
+					for(i=0;i<w_size;i++)
+						model_->w[i] = 0;
+
+				train_one(&sub_prob, param, model_->w, weighted_C[0], weighted_C[1]);
 			}
 			else
 			{
@@ -2573,6 +2563,13 @@ model* train(const problem *prob, const parameter *param)
 						sub_prob.y[k] = +1;
 					for(; k<sub_prob.l; k++)
 						sub_prob.y[k] = -1;
+
+					if(param->init_sol != NULL)
+						for(j=0;j<w_size;j++)
+							w[j] = param->init_sol[j*nr_class+i];
+					else
+						for(j=0;j<w_size;j++)
+							w[j] = 0;
 
 					train_one(&sub_prob, param, w, weighted_C[i], param->C);
 
@@ -2592,9 +2589,9 @@ model* train(const problem *prob, const parameter *param)
 		free(sub_prob.x);
 		free(sub_prob.y);
 		free(weighted_C);
-        if(param->solver_type == L2R_LR_ME){ // M.Yudelson
-            free(sub_prob.group);  // M.Yudelson
-        } // M.Yudelson
+		if(param->solver_type == L2R_LR_ME){ // M.Yudelson
+			free(sub_prob.group);  // M.Yudelson
+		} // M.Yudelson
 	}
 	return model_;
 }
@@ -2602,10 +2599,15 @@ model* train(const problem *prob, const parameter *param)
 void cross_validation(const problem *prob, const parameter *param, int nr_fold, double *target)
 {
 	int i;
-	int *fold_start = Malloc(int,nr_fold+1);
+	int *fold_start;
 	int l = prob->l;
 	int *perm = Malloc(int,l);
-
+	if (nr_fold > l)
+	{
+		nr_fold = l;
+		fprintf(stderr,"WARNING: # folds > # data. Will use # folds = # data instead (i.e., leave-one-out cross validation)\n");
+	}
+	fold_start = Malloc(int,nr_fold+1);
 	for(i=0;i<l;i++) perm[i]=i;
 	for(i=0;i<l;i++)
 	{
@@ -2627,12 +2629,11 @@ void cross_validation(const problem *prob, const parameter *param, int nr_fold, 
 		subprob.l = l-(end-begin);
 		subprob.x = Malloc(struct feature_node*,subprob.l);
 		subprob.y = Malloc(double,subprob.l);
-        if(prob->n_group > 0) { // M.Yudelson
-            subprob.group = Malloc(int,subprob.n); // M.Yudelson
-            for(j=0; j<subprob.n; j++) // M.Yudelson
-                subprob.group[j] = prob->group[j]; // M.Yudelson
-        }// M.Yudelson
-        
+		if(prob->n_group > 0) { // M.Yudelson
+			subprob.group = Malloc(int,subprob.n); // M.Yudelson
+			for(j=0; j<subprob.n; j++) // M.Yudelson
+				subprob.group[j] = prob->group[j]; // M.Yudelson
+		}// M.Yudelson
 
 		k=0;
 		for(j=0;j<begin;j++)
@@ -2653,10 +2654,162 @@ void cross_validation(const problem *prob, const parameter *param, int nr_fold, 
 		free_and_destroy_model(&submodel);
 		free(subprob.x);
 		free(subprob.y);
-        if(prob->n_group > 0) free(subprob.group); // M.Yudelson
+		if(prob->n_group > 0) free(subprob.group); // M.Yudelson
 	}
 	free(fold_start);
 	free(perm);
+}
+
+void find_parameter_C(const problem *prob, const parameter *param, int nr_fold, double start_C, double max_C, double *best_C, double *best_rate)
+{
+	// variables for CV
+	int i;
+	int *fold_start;
+	int l = prob->l;
+	int *perm = Malloc(int, l);
+	double *target = Malloc(double, prob->l);
+	struct problem *subprob = Malloc(problem,nr_fold);
+
+	// variables for warm start
+	double ratio = 2;
+	double **prev_w = Malloc(double*, nr_fold);
+	for(i = 0; i < nr_fold; i++)
+		prev_w[i] = NULL;
+	int num_unchanged_w = 0;
+	struct parameter param1 = *param;
+	void (*default_print_string) (const char *) = liblinear_print_string;
+
+	if (nr_fold > l)
+	{
+		nr_fold = l;
+		fprintf(stderr,"WARNING: # folds > # data. Will use # folds = # data instead (i.e., leave-one-out cross validation)\n");
+	}
+	fold_start = Malloc(int,nr_fold+1);
+	for(i=0;i<l;i++) perm[i]=i;
+	for(i=0;i<l;i++)
+	{
+		int j = i+rand()%(l-i);
+		swap(perm[i],perm[j]);
+	}
+	for(i=0;i<=nr_fold;i++)
+		fold_start[i]=i*l/nr_fold;
+
+	for(i=0;i<nr_fold;i++)
+	{
+		int begin = fold_start[i];
+		int end = fold_start[i+1];
+		int j,k;
+
+		subprob[i].bias = prob->bias;
+		subprob[i].n = prob->n;
+		subprob[i].l = l-(end-begin);
+		subprob[i].x = Malloc(struct feature_node*,subprob[i].l);
+		subprob[i].y = Malloc(double,subprob[i].l);
+
+		k=0;
+		for(j=0;j<begin;j++)
+		{
+			subprob[i].x[k] = prob->x[perm[j]];
+			subprob[i].y[k] = prob->y[perm[j]];
+			++k;
+		}
+		for(j=end;j<l;j++)
+		{
+			subprob[i].x[k] = prob->x[perm[j]];
+			subprob[i].y[k] = prob->y[perm[j]];
+			++k;
+		}
+
+	}
+
+	*best_rate = 0;
+	if(start_C <= 0)
+		start_C = calc_start_C(prob,param);
+	param1.C = start_C;
+
+	while(param1.C <= max_C)
+	{
+		//Output disabled for running CV at a particular C
+		set_print_string_function(&print_null);
+
+		for(i=0; i<nr_fold; i++)
+		{
+			int j;
+			int begin = fold_start[i];
+			int end = fold_start[i+1];
+
+			param1.init_sol = prev_w[i];
+			struct model *submodel = train(&subprob[i],&param1);
+
+			int total_w_size;
+			if(submodel->nr_class == 2)
+				total_w_size = subprob[i].n;
+			else
+				total_w_size = subprob[i].n * submodel->nr_class;
+
+			if(prev_w[i] == NULL)
+			{
+				prev_w[i] = Malloc(double, total_w_size);
+				for(j=0; j<total_w_size; j++)
+					prev_w[i][j] = submodel->w[j];
+			}
+			else if(num_unchanged_w >= 0)
+			{
+				double norm_w_diff = 0;
+				for(j=0; j<total_w_size; j++)
+				{
+					norm_w_diff += (submodel->w[j] - prev_w[i][j])*(submodel->w[j] - prev_w[i][j]);
+					prev_w[i][j] = submodel->w[j];
+				}
+				norm_w_diff = sqrt(norm_w_diff);
+
+				if(norm_w_diff > 1e-15)
+					num_unchanged_w = -1;
+			}
+			else
+			{
+				for(j=0; j<total_w_size; j++)
+					prev_w[i][j] = submodel->w[j];
+			}
+
+			for(j=begin; j<end; j++)
+				target[perm[j]] = predict(submodel,prob->x[perm[j]]);
+
+			free_and_destroy_model(&submodel);
+		}
+		set_print_string_function(default_print_string);
+
+		int total_correct = 0;
+		for(i=0; i<prob->l; i++)
+			if(target[i] == prob->y[i])
+				++total_correct;
+		double current_rate = (double)total_correct/prob->l;
+		if(current_rate > *best_rate)
+		{
+			*best_C = param1.C;
+			*best_rate = current_rate;
+		}
+
+		info("log2c=%7.2f\trate=%g\n",log(param1.C)/log(2.0),100.0*current_rate);
+		num_unchanged_w++;
+		if(num_unchanged_w == 3)
+			break;
+		param1.C = param1.C*ratio;
+	}
+
+	if(param1.C > max_C && max_C > start_C) 
+		info("warning: maximum C reached.\n");
+	free(fold_start);
+	free(perm);
+	free(target);
+	for(i=0; i<nr_fold; i++)
+	{
+		free(subprob[i].x);
+		free(subprob[i].y);
+		free(prev_w[i]);
+	}
+	free(prev_w);
+	free(subprob);
 }
 
 double predict_values(const struct model *model_, const struct feature_node *x, double *dec_values)
@@ -2689,9 +2842,7 @@ double predict_values(const struct model *model_, const struct feature_node *x, 
 
 	if(nr_class==2)
 	{
-		if(model_->param.solver_type == L2R_L2LOSS_SVR ||
-		   model_->param.solver_type == L2R_L1LOSS_SVR_DUAL ||
-		   model_->param.solver_type == L2R_L2LOSS_SVR_DUAL)
+		if(check_regression_model(model_))
 			return dec_values[0];
 		else
 			return (dec_values[0]>0)?model_->label[0]:model_->label[1];
@@ -2755,7 +2906,7 @@ static const char *solver_type_table[]=
 	"L2R_LR", "L2R_L2LOSS_SVC_DUAL", "L2R_L2LOSS_SVC", "L2R_L1LOSS_SVC_DUAL", "MCSVM_CS",
 	"L1R_L2LOSS_SVC", "L1R_LR", "L2R_LR_DUAL",
 	"", "", "",
-	"L2R_L2LOSS_SVR", "L2R_L2LOSS_SVR_DUAL", "L2R_L1LOSS_SVR_DUAL", "L2R_LR_ME", NULL // M.Yudelson
+	"L2R_L2LOSS_SVR", "L2R_L2LOSS_SVR_DUAL", "L2R_L1LOSS_SVR_DUAL", "L2R_LR_ME", NULL
 };
 
 int save_model(const char *model_file_name, const struct model *model_)
@@ -2773,7 +2924,11 @@ int save_model(const char *model_file_name, const struct model *model_)
 	FILE *fp = fopen(model_file_name,"w");
 	if(fp==NULL) return -1;
 
-	char *old_locale = strdup(setlocale(LC_ALL, NULL));
+	char *old_locale = setlocale(LC_ALL, NULL);
+	if (old_locale)
+	{
+		old_locale = strdup(old_locale);
+	}
 	setlocale(LC_ALL, "C");
 
 	int nr_w;
@@ -2813,6 +2968,30 @@ int save_model(const char *model_file_name, const struct model *model_)
 	else return 0;
 }
 
+//
+// FSCANF helps to handle fscanf failures.
+// Its do-while block avoids the ambiguity when
+// if (...)
+//    FSCANF();
+// is used
+//
+#define FSCANF(_stream, _format, _var)do\
+{\
+	if (fscanf(_stream, _format, _var) != 1)\
+	{\
+		fprintf(stderr, "ERROR: fscanf failed to read the model\n");\
+		EXIT_LOAD_MODEL()\
+	}\
+}while(0)
+// EXIT_LOAD_MODEL should NOT end with a semicolon.
+#define EXIT_LOAD_MODEL()\
+{\
+	setlocale(LC_ALL, old_locale);\
+	free(model_->label);\
+	free(model_);\
+	free(old_locale);\
+	return NULL;\
+}
 struct model *load_model(const char *model_file_name)
 {
 	FILE *fp = fopen(model_file_name,"r");
@@ -2828,16 +3007,20 @@ struct model *load_model(const char *model_file_name)
 
 	model_->label = NULL;
 
-	char *old_locale = strdup(setlocale(LC_ALL, NULL));
+	char *old_locale = setlocale(LC_ALL, NULL);
+	if (old_locale)
+	{
+		old_locale = strdup(old_locale);
+	}
 	setlocale(LC_ALL, "C");
 
 	char cmd[81];
 	while(1)
 	{
-		fscanf(fp,"%80s",cmd);
+		FSCANF(fp,"%80s",cmd);
 		if(strcmp(cmd,"solver_type")==0)
 		{
-			fscanf(fp,"%80s",cmd);
+			FSCANF(fp,"%80s",cmd);
 			int i;
 			for(i=0;solver_type_table[i];i++)
 			{
@@ -2850,27 +3033,22 @@ struct model *load_model(const char *model_file_name)
 			if(solver_type_table[i] == NULL)
 			{
 				fprintf(stderr,"unknown solver type.\n");
-
-				setlocale(LC_ALL, old_locale);
-				free(model_->label);
-				free(model_);
-				free(old_locale);
-				return NULL;
+				EXIT_LOAD_MODEL()
 			}
 		}
 		else if(strcmp(cmd,"nr_class")==0)
 		{
-			fscanf(fp,"%d",&nr_class);
+			FSCANF(fp,"%d",&nr_class);
 			model_->nr_class=nr_class;
 		}
 		else if(strcmp(cmd,"nr_feature")==0)
 		{
-			fscanf(fp,"%d",&nr_feature);
+			FSCANF(fp,"%d",&nr_feature);
 			model_->nr_feature=nr_feature;
 		}
 		else if(strcmp(cmd,"bias")==0)
 		{
-			fscanf(fp,"%lf",&bias);
+			FSCANF(fp,"%lf",&bias);
 			model_->bias=bias;
 		}
 		else if(strcmp(cmd,"w")==0)
@@ -2882,16 +3060,12 @@ struct model *load_model(const char *model_file_name)
 			int nr_class = model_->nr_class;
 			model_->label = Malloc(int,nr_class);
 			for(int i=0;i<nr_class;i++)
-				fscanf(fp,"%d",&model_->label[i]);
+				FSCANF(fp,"%d",&model_->label[i]);
 		}
 		else
 		{
 			fprintf(stderr,"unknown text in model file: [%s]\n",cmd);
-			setlocale(LC_ALL, old_locale);
-			free(model_->label);
-			free(model_);
-			free(old_locale);
-			return NULL;
+			EXIT_LOAD_MODEL()
 		}
 	}
 
@@ -2912,8 +3086,12 @@ struct model *load_model(const char *model_file_name)
 	{
 		int j;
 		for(j=0; j<nr_w; j++)
-			fscanf(fp, "%lf ", &model_->w[i*nr_w+j]);
-		fscanf(fp, "\n");
+			FSCANF(fp, "%lf ", &model_->w[i*nr_w+j]);
+		if (fscanf(fp, "\n") !=0)
+		{
+			fprintf(stderr, "ERROR: fscanf failed to read the model\n");
+			EXIT_LOAD_MODEL()
+		}
 	}
 
 	setlocale(LC_ALL, old_locale);
@@ -2941,6 +3119,53 @@ void get_labels(const model *model_, int* label)
 			label[i] = model_->label[i];
 }
 
+// use inline here for better performance (around 20% faster than the non-inline one)
+static inline double get_w_value(const struct model *model_, int idx, int label_idx) 
+{
+	int nr_class = model_->nr_class;
+	int solver_type = model_->param.solver_type;
+	const double *w = model_->w;
+
+	if(idx < 0 || idx > model_->nr_feature)
+		return 0;
+	if(check_regression_model(model_))
+		return w[idx];
+	else 
+	{
+		if(label_idx < 0 || label_idx >= nr_class)
+			return 0;
+		if(nr_class == 2 && solver_type != MCSVM_CS)
+		{
+			if(label_idx == 0)
+				return w[idx];
+			else
+				return -w[idx];
+		}
+		else
+			return w[idx*nr_class+label_idx];
+	}
+}
+
+// feat_idx: starting from 1 to nr_feature
+// label_idx: starting from 0 to nr_class-1 for classification models;
+//            for regression models, label_idx is ignored.
+double get_decfun_coef(const struct model *model_, int feat_idx, int label_idx)
+{
+	if(feat_idx > model_->nr_feature)
+		return 0;
+	return get_w_value(model_, feat_idx-1, label_idx);
+}
+
+double get_decfun_bias(const struct model *model_, int label_idx)
+{
+	int bias_idx = model_->nr_feature;
+	double bias = model_->bias;
+	if(bias <= 0)
+		return 0;
+	else
+		return bias*get_w_value(model_, bias_idx, label_idx);
+}
+
 void free_model_content(struct model *model_ptr)
 {
 	if(model_ptr->w != NULL)
@@ -2965,6 +3190,8 @@ void destroy_param(parameter* param)
 		free(param->weight_label);
 	if(param->weight != NULL)
 		free(param->weight);
+	if(param->init_sol != NULL)
+		free(param->init_sol);
 	if(param->group_st != NULL) // M.Yudelson
 		free(param->group_st);   // M.Yudelson
 	if(param->group_fi != NULL)  // M.Yudelson
@@ -2982,7 +3209,7 @@ const char *check_parameter(const problem *prob, const parameter *param)
 	if(param->p < 0)
 		return "p < 0";
 
-	if(    param->solver_type != L2R_LR
+	if(param->solver_type != L2R_LR
 		&& param->solver_type != L2R_L2LOSS_SVC_DUAL
 		&& param->solver_type != L2R_L2LOSS_SVC
 		&& param->solver_type != L2R_L1LOSS_SVC_DUAL
@@ -2992,9 +3219,14 @@ const char *check_parameter(const problem *prob, const parameter *param)
 		&& param->solver_type != L2R_LR_DUAL
 		&& param->solver_type != L2R_L2LOSS_SVR
 		&& param->solver_type != L2R_L2LOSS_SVR_DUAL
-		&& param->solver_type != L2R_L1LOSS_SVR_DUAL
-        && param->solver_type != L2R_LR_ME) // M.Yudelson
+	    && param->solver_type != L2R_L1LOSS_SVR_DUAL
+	    && param->solver_type != L2R_LR_ME) // M.Yudelson
+
 		return "unknown solver type";
+
+	if(param->init_sol != NULL 
+		&& param->solver_type != L2R_LR && param->solver_type != L2R_L2LOSS_SVC)
+		return "Initial-solution specification supported only for solver L2R_LR and L2R_L2LOSS_SVC";
 
 	return NULL;
 }
@@ -3002,9 +3234,16 @@ const char *check_parameter(const problem *prob, const parameter *param)
 int check_probability_model(const struct model *model_)
 {
 	return (model_->param.solver_type==L2R_LR ||
-            model_->param.solver_type==L2R_LR_ME ||   // M.Yudelson
+			model_->param.solver_type==L2R_LR_ME ||   // M.Yudelson
 			model_->param.solver_type==L2R_LR_DUAL ||
 			model_->param.solver_type==L1R_LR);
+}
+
+int check_regression_model(const struct model *model_)
+{
+	return (model_->param.solver_type==L2R_L2LOSS_SVR ||
+			model_->param.solver_type==L2R_L1LOSS_SVR_DUAL ||
+			model_->param.solver_type==L2R_L2LOSS_SVR_DUAL);
 }
 
 void set_print_string_function(void (*print_func)(const char*))
