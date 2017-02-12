@@ -1,4 +1,4 @@
-```C/C++
+```C
 #include <stdio.h>
 unsigned int fact_r(unsigned int n) {
     if (n == 0) {
